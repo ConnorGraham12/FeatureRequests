@@ -1,4 +1,4 @@
-"""Test doubles: deterministic embeddings and a scripted LLM."""
+"""Test doubles: deterministic embeddings and a scripted language model."""
 
 import hashlib
 import re
@@ -9,51 +9,56 @@ import numpy as np
 
 from app.ai.llm import LLMError, LLMResult
 
-DIM = 256
+EMBEDDING_SIZE = 256
 
 
 class FakeEmbedder:
-    """Hashed bag of words: texts sharing words get high cosine similarity."""
+    """A hashed bag of words: texts that share words get a high cosine similarity."""
 
-    model_name = "fake-bow"
+    model_name = "fake-bag-of-words"
 
-    def embed(self, texts: Sequence[str]) -> np.ndarray:
-        out = np.zeros((len(texts), DIM), dtype=np.float32)
+    def embed_texts(self, texts: Sequence[str]) -> np.ndarray:
+        vectors = np.zeros((len(texts), EMBEDDING_SIZE), dtype=np.float32)
         for row, text in enumerate(texts):
             for word in re.findall(r"[a-z]+", text.lower()):
-                out[row, int(hashlib.md5(word.encode()).hexdigest(), 16) % DIM] += 1.0
-            norm = np.linalg.norm(out[row])
-            if norm:
-                out[row] /= norm
-        return out
+                word_hash = int(hashlib.md5(word.encode()).hexdigest(), 16)
+                vectors[row, word_hash % EMBEDDING_SIZE] += 1.0
+            length = np.linalg.norm(vectors[row])
+            if length:
+                vectors[row] /= length
+        return vectors
 
 
-class FakeLLM:
-    """Returns queued outputs per output type; an LLMError in the queue is raised."""
+class FakeLanguageModel:
+    """Returns queued answers, one queue per output type.
+
+    Queue an LLMError (or use queue_failure) to make the next call for that
+    output type fail.
+    """
 
     def __init__(self) -> None:
-        self.queues: dict[type, deque] = defaultdict(deque)
+        self.queued_answers: dict[type, deque] = defaultdict(deque)
         self.calls: list[tuple[type, str]] = []
 
-    def queue(self, *outputs) -> "FakeLLM":
-        for output in outputs:
-            key = LLMError if isinstance(output, LLMError) else type(output)
-            self.queues[key].append(output)
+    def queue_answers(self, *answers) -> "FakeLanguageModel":
+        for answer in answers:
+            self.queued_answers[type(answer)].append(answer)
         return self
 
-    def fail_next(self, output_type: type, message: str = "boom") -> "FakeLLM":
-        self.queues[output_type].append(LLMError(message))
+    def queue_failure(self, output_type: type, message: str = "boom") -> "FakeLanguageModel":
+        self.queued_answers[output_type].append(LLMError(message))
         return self
 
-    def structured(self, *, system: str, user: str, output_type: type):
-        self.calls.append((output_type, user))
-        if not self.queues[output_type]:
-            raise AssertionError(f"No scripted output for {output_type.__name__}")
-        output = self.queues[output_type].popleft()
-        if isinstance(output, LLMError):
-            raise output
+    def request_structured_output(self, *, system_prompt: str, user_message: str, output_type: type):
+        self.calls.append((output_type, user_message))
+        if not self.queued_answers[output_type]:
+            raise AssertionError(f"No queued answer for {output_type.__name__}")
+
+        answer = self.queued_answers[output_type].popleft()
+        if isinstance(answer, LLMError):
+            raise answer
         return LLMResult(
-            output=output,
+            output=answer,
             model="fake-model",
             latency_ms=5,
             input_tokens=100,

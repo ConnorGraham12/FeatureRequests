@@ -3,7 +3,7 @@
     python -m app.cli bootstrap-taxonomy requests.jsonl
 
 Each line of the input file is a JSON object with "title" and "description".
-The proposed taxonomy then waits for approval on the /categories page.
+The proposed categories then wait for approval on the /categories page.
 """
 
 import argparse
@@ -13,43 +13,47 @@ from pathlib import Path
 
 from app.ai.llm import LLMError
 from app.config import get_settings
-from app.db.session import init_db, make_engine, make_session_factory
-from app.main import build_context
+from app.db.session import create_database_engine, create_session_factory, create_tables
+from app.main import build_triage_context
 from app.services import taxonomy
 
 
-def _read_requests(path: Path) -> list[tuple[str, str]]:
+def read_requests_from_jsonl(path: Path) -> list[tuple[str, str]]:
+    """Return (title, description) pairs. Stops with a clear message on a bad line."""
     requests = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for line_number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         record = json.loads(line)
-        try:
-            requests.append((record["title"], record["description"]))
-        except KeyError as missing:
-            raise SystemExit(f"{path}:{number}: missing field {missing}")
+        if "title" not in record or "description" not in record:
+            raise SystemExit(f"{path}:{line_number}: each line needs a title and a description")
+        requests.append((record["title"], record["description"]))
     return requests
 
 
 def bootstrap_taxonomy(path: Path) -> int:
-    requests = _read_requests(path)
+    requests = read_requests_from_jsonl(path)
     if not requests:
         print(f"No requests found in {path}", file=sys.stderr)
         return 1
 
     settings = get_settings()
-    engine = make_engine(settings.database_url)
-    init_db(engine)
-    ctx = build_context(settings)
-    with make_session_factory(engine)() as session:
+    engine = create_database_engine(settings.database_url)
+    create_tables(engine)
+    context = build_triage_context(settings)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
         try:
-            proposal = taxonomy.propose(session, ctx, requests)
+            proposal = taxonomy.request_taxonomy_proposal(session, context, requests)
         except LLMError as error:
             print(f"Taxonomy proposal failed: {error}", file=sys.stderr)
             return 1
 
-    print(f"Proposed {len(proposal.payload['categories'])} categories from {len(requests)} requests:")
-    for category in proposal.payload["categories"]:
+    proposed_categories = proposal.payload["categories"]
+    print(f"Proposed {len(proposed_categories)} categories from {len(requests)} requests:")
+    for category in proposed_categories:
         print(f"  - {category['name']}: {category['description']}")
     print(f"Correlation ID {proposal.correlation_id}. Approve or edit them at /categories.")
     return 0
@@ -58,8 +62,10 @@ def bootstrap_taxonomy(path: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
-    bootstrap = commands.add_parser("bootstrap-taxonomy", help="Ask the AI to propose categories")
-    bootstrap.add_argument("file", type=Path, help="JSONL file of {title, description}")
+    bootstrap_command = commands.add_parser(
+        "bootstrap-taxonomy", help="Ask the AI to propose categories"
+    )
+    bootstrap_command.add_argument("file", type=Path, help="JSONL file of {title, description}")
     args = parser.parse_args()
 
     if args.command == "bootstrap-taxonomy":

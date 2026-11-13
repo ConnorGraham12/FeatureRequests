@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.ai.embeddings import Embedder
-from app.ai.llm import LLM, LLMError, LLMResult
-from app.ai.prompts import Prompt
+from app.ai.llm import LanguageModel, LLMError, LLMResult
+from app.ai.prompts import PromptTemplate
 from app.config import Settings
 from app.db.models import Proposal
 from app.domain.enums import ProposalStatus
@@ -19,22 +19,22 @@ from app.observability.decision_log import (
 
 @dataclass
 class TriageContext:
-    """Everything a service needs besides the DB session."""
+    """Everything the services need apart from a database session."""
 
     settings: Settings
-    log: DecisionLogger
+    decision_log: DecisionLogger
     embedder: Embedder
-    llm: LLM
+    language_model: LanguageModel
 
     @property
-    def reviewer(self) -> str:
+    def reviewer_name(self) -> str:
         return self.settings.reviewer_name
 
-    def log_ai(
+    def write_ai_decision_event(
         self,
         event_type: EventType,
         result: LLMResult,
-        prompt: Prompt,
+        prompt: PromptTemplate,
         user_message: str,
         *,
         parent_event_id: str | None,
@@ -44,53 +44,66 @@ class TriageContext:
         submission_id: int | None = None,
         feature_id: int | None = None,
     ) -> DecisionEvent:
+        """Log a decision the model made, with its prompt version, tokens and timing."""
+        payload_to_log = dict(payload)
         if result.fallback_used:
-            payload = {**payload, "fallback_used": True}
-        return self.log.record(
+            payload_to_log["fallback_used"] = True
+
+        debug_details = {
+            "system": prompt.text,
+            "user": user_message,
+            "request_id": result.request_id,
+            "raw_response": result.raw_response,
+        }
+        return self.decision_log.write_event(
             event_type,
-            Actor.ai(result.model),
+            Actor.for_ai_model(result.model),
             parent_event_id=parent_event_id,
             submission_id=submission_id,
             feature_id=feature_id,
-            payload=payload,
+            payload=payload_to_log,
             confidence=confidence,
             reasoning=reasoning,
-            prompt_version=prompt.id,
-            prompt_hash=prompt.hash,
+            prompt_version=prompt.versioned_name,
+            prompt_hash=prompt.content_hash,
             latency_ms=result.latency_ms,
             tokens=TokenUsage(input=result.input_tokens, output=result.output_tokens),
-            debug={
-                "system": prompt.text,
-                "user": user_message,
-                "request_id": result.request_id,
-                "raw_response": result.raw_response,
-            },
+            debug=debug_details,
         )
 
-    def log_error(
+    def write_pipeline_error_event(
         self,
-        stage: str,
+        failed_stage: str,
         error: LLMError,
         *,
         parent_event_id: str | None,
         submission_id: int | None = None,
     ) -> DecisionEvent:
-        return self.log.record(
+        """Log that an AI step failed, so the failure appears in the submission's trace."""
+        return self.decision_log.write_event(
             EventType.PIPELINE_ERROR,
-            Actor.system(),
+            Actor.for_system(),
             parent_event_id=parent_event_id,
             submission_id=submission_id,
-            payload={"stage": stage, "error": type(error).__name__, "message": str(error)},
+            payload={
+                "stage": failed_stage,
+                "error": type(error).__name__,
+                "message": str(error),
+            },
         )
 
 
-def mark_decided(
+def record_decision_on_proposal(
     proposal: Proposal,
-    status: ProposalStatus,
-    reviewer: str,
-    decision_payload: dict[str, Any] | None,
+    new_status: ProposalStatus,
+    reviewer_name: str,
+    decision_details: dict[str, Any] | None,
 ) -> None:
-    proposal.status = status
-    proposal.decided_by = reviewer
+    """Mark a proposal as decided: who decided, when, the outcome and any edits."""
+    proposal.status = new_status
+    proposal.decided_by = reviewer_name
     proposal.decided_at = datetime.now(UTC)
-    proposal.decision_payload = decision_payload or None
+    if decision_details:
+        proposal.decision_payload = decision_details
+    else:
+        proposal.decision_payload = None

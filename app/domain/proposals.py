@@ -1,59 +1,36 @@
-"""Human-gate rules for AI proposals. Pure logic, no I/O.
+"""Rules for human decisions on AI proposals. Pure logic, no database or I/O.
 
-AI output never changes state directly: it becomes a proposal, and only a human
-decision validated here may move it out of PENDING.
+The AI never changes state directly: what it suggests is stored as a proposal,
+and only a human decision may move that proposal out of PENDING.
 """
 
-from collections.abc import Mapping
-from typing import Any
-
-from app.domain.enums import Decision, ProposalStatus, ProposalType
+from app.domain.enums import ProposalStatus
 
 
 class ProposalAlreadyDecidedError(ValueError):
-    pass
+    """Raised when someone tries to decide a proposal a second time."""
 
 
 class InvalidDecisionError(ValueError):
-    pass
+    """Raised when a decision is missing information or isn't allowed."""
 
 
-_DECISION_TO_STATUS = {
-    Decision.APPROVE: ProposalStatus.APPROVED,
-    Decision.REJECT: ProposalStatus.REJECTED,
-    Decision.EDIT: ProposalStatus.EDITED,
-}
-
-# Fields the reviewer must supply for a given (proposal type, decision).
-# A rejected category must still be saved, with the reviewer's chosen category.
-_REQUIRED_FIELDS: dict[tuple[ProposalType, Decision], tuple[str, ...]] = {
-    (ProposalType.CATEGORY, Decision.REJECT): ("category_id",),
-    (ProposalType.CATEGORY, Decision.EDIT): ("category_id",),
-    (ProposalType.SUMMARY, Decision.EDIT): ("summary",),
-    (ProposalType.NEW_CATEGORY, Decision.EDIT): ("name", "description"),
-    (ProposalType.NEW_CATEGORY, Decision.REJECT): ("category_id",),
-    (ProposalType.TAXONOMY, Decision.EDIT): ("categories",),
-}
-
-
-def validate_decision(
-    proposal_type: ProposalType,
-    current_status: ProposalStatus,
-    decision: Decision,
-    decision_payload: Mapping[str, Any] | None = None,
-) -> ProposalStatus:
-    """Check a human decision is allowed and return the proposal's new status."""
+def ensure_proposal_is_pending(current_status: ProposalStatus) -> None:
+    """Raise unless the proposal is still waiting for a decision."""
     if current_status is not ProposalStatus.PENDING:
-        raise ProposalAlreadyDecidedError(f"Proposal is already {current_status}")
+        raise ProposalAlreadyDecidedError(f"This proposal was already {current_status}")
 
-    payload = decision_payload or {}
-    missing = [
-        field
-        for field in _REQUIRED_FIELDS.get((proposal_type, decision), ())
-        if payload.get(field) in (None, "", [])
-    ]
-    if missing:
-        raise InvalidDecisionError(
-            f"{decision} on a {proposal_type} proposal requires: {', '.join(missing)}"
-        )
-    return _DECISION_TO_STATUS[decision]
+
+def ensure_text_is_present(value: str | None, field_description: str) -> str:
+    """Return the trimmed text, or raise if it is empty."""
+    trimmed = (value or "").strip()
+    if not trimmed:
+        raise InvalidDecisionError(f"{field_description} is required")
+    return trimmed
+
+
+def ensure_category_is_chosen(category_id: int | None) -> int:
+    """Return the category ID, or raise if the reviewer didn't choose one."""
+    if category_id is None:
+        raise InvalidDecisionError("Choose a category")
+    return category_id

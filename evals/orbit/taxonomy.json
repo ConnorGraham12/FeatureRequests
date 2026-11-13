@@ -1,0 +1,9 @@
+[
+  {"name": "Tasks & Projects", "description": "Creating, organizing and scheduling work: tasks, subtasks, boards, timelines, dependencies, templates and bulk task changes."},
+  {"name": "Collaboration", "description": "Working with other people inside Orbit: comments, @mentions, sharing, guest access and real-time editing."},
+  {"name": "Notifications", "description": "How and when Orbit alerts people: email, browser push and in-app alerts, digests, reminders and notification settings."},
+  {"name": "Reporting & Analytics", "description": "Seeing and exporting data about work: dashboards, charts, exports and time tracking reports."},
+  {"name": "Integrations & API", "description": "Connecting Orbit to other tools and code: Slack, GitHub, calendars, webhooks and the public API."},
+  {"name": "Admin & Security", "description": "Workspace administration and protection: SSO, roles and permissions, audit logs, authentication policy and data controls."},
+  {"name": "UI/UX & Accessibility", "description": "How the web app looks and is operated: themes, layout and density, keyboard shortcuts and accessibility."}
+]

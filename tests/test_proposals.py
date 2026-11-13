@@ -1,38 +1,34 @@
 import pytest
 
-from app.domain.enums import Decision, ProposalStatus, ProposalType
+from app.domain.enums import ProposalStatus
 from app.domain.proposals import (
     InvalidDecisionError,
     ProposalAlreadyDecidedError,
-    validate_decision,
+    ensure_category_is_chosen,
+    ensure_proposal_is_pending,
+    ensure_text_is_present,
 )
 
 
-def test_approve_pending_proposal():
-    status = validate_decision(ProposalType.DUPLICATE, ProposalStatus.PENDING, Decision.APPROVE)
-    assert status is ProposalStatus.APPROVED
+def test_pending_proposal_can_be_decided():
+    ensure_proposal_is_pending(ProposalStatus.PENDING)
 
 
-def test_decided_proposal_cannot_be_decided_again():
+@pytest.mark.parametrize(
+    "status", [ProposalStatus.APPROVED, ProposalStatus.REJECTED, ProposalStatus.EDITED]
+)
+def test_decided_proposal_cannot_be_decided_again(status):
     with pytest.raises(ProposalAlreadyDecidedError):
-        validate_decision(ProposalType.DUPLICATE, ProposalStatus.APPROVED, Decision.REJECT)
+        ensure_proposal_is_pending(status)
 
 
-def test_rejected_category_requires_reviewer_category():
-    with pytest.raises(InvalidDecisionError, match="category_id"):
-        validate_decision(ProposalType.CATEGORY, ProposalStatus.PENDING, Decision.REJECT)
-
-    status = validate_decision(
-        ProposalType.CATEGORY, ProposalStatus.PENDING, Decision.REJECT, {"category_id": 3}
-    )
-    assert status is ProposalStatus.REJECTED
+def test_text_must_not_be_blank():
+    assert ensure_text_is_present("  My summary ", "A summary") == "My summary"
+    with pytest.raises(InvalidDecisionError, match="A summary is required"):
+        ensure_text_is_present("   ", "A summary")
 
 
-def test_rejected_merge_needs_no_payload():
-    status = validate_decision(ProposalType.DUPLICATE, ProposalStatus.PENDING, Decision.REJECT)
-    assert status is ProposalStatus.REJECTED
-
-
-def test_edited_summary_requires_text():
-    with pytest.raises(InvalidDecisionError):
-        validate_decision(ProposalType.SUMMARY, ProposalStatus.PENDING, Decision.EDIT, {"summary": ""})
+def test_a_category_must_be_chosen():
+    assert ensure_category_is_chosen(3) == 3
+    with pytest.raises(InvalidDecisionError, match="Choose a category"):
+        ensure_category_is_chosen(None)

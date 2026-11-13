@@ -1,11 +1,11 @@
-"""Append-only JSONL log of every runtime decision, AI or human.
+"""Append-only JSONL log of every runtime decision, made by the AI or a human.
 
-One line per decision block. Every line carries a correlation ID, so the full
-history of a submission can be recovered with:
+Each decision is one line in the file. Every line carries a correlation ID, so
+the full history of a submission can be found with:
 
     grep <correlation_id> logs/decisions.jsonl
 
-The database holds current state; this log records how that state was reached.
+The database holds the current state; this log records how it was reached.
 """
 
 import threading
@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.observability.correlation import get_correlation_id, get_run_id
+from app.observability.correlation import get_current_correlation_id, get_current_eval_run_id
 
 
 class EventType(StrEnum):
@@ -29,31 +29,42 @@ class EventType(StrEnum):
     MERGE_DECISION = "merge.decision"
     CATEGORY_DECISION = "category.decision"
     CATEGORY_CREATED = "category.created"
+    CATEGORY_REASSIGNED = "category.reassigned"
+    FEATURE_EDITED = "feature.edited"
+    FEATURE_ARCHIVED = "feature.archived"
+    FEATURE_RESTORED = "feature.restored"
+    SUBMISSION_UNMERGED = "submission.unmerged"
+    SUBMISSION_MOVED = "submission.moved"
+    SUBMISSION_ARCHIVED = "submission.archived"
+    SUBMISSION_RESTORED = "submission.restored"
     TAXONOMY_PROPOSED = "taxonomy.proposed"
     TAXONOMY_DECISION = "taxonomy.decision"
     PIPELINE_ERROR = "pipeline.error"
 
 
 class Actor(BaseModel):
+    """Who made a decision: the system, an AI model, or a human reviewer."""
+
     type: Literal["system", "ai", "human"]
     model: str | None = None
     reviewer: str | None = None
 
     @classmethod
-    def system(cls) -> "Actor":
+    def for_system(cls) -> "Actor":
         return cls(type="system")
 
     @classmethod
-    def ai(cls, model: str) -> "Actor":
-        return cls(type="ai", model=model)
+    def for_ai_model(cls, model_name: str) -> "Actor":
+        return cls(type="ai", model=model_name)
 
     @classmethod
-    def human(cls, reviewer: str) -> "Actor":
-        return cls(type="human", reviewer=reviewer)
+    def for_human_reviewer(cls, reviewer_name: str) -> "Actor":
+        return cls(type="human", reviewer=reviewer_name)
 
 
 class TokenUsage(BaseModel):
-    # Written as {"in": .., "out": ..}; accepts either name when constructed.
+    """Token counts. Written to the log as {"in": ..., "out": ...}."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     input: int = Field(alias="in")
@@ -81,17 +92,17 @@ class DecisionEvent(BaseModel):
 
 
 class MissingCorrelationIdError(RuntimeError):
-    """Raised when a decision is recorded outside any correlation scope."""
+    """Raised when a decision is written while no correlation ID is bound."""
 
 
 class DecisionLogger:
-    def __init__(self, path: Path, verbose: bool = False) -> None:
-        self.path = Path(path)
-        self.verbose = verbose
-        self._lock = threading.Lock()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, log_file_path: Path, include_debug_details: bool = False) -> None:
+        self.log_file_path = Path(log_file_path)
+        self.include_debug_details = include_debug_details
+        self._write_lock = threading.Lock()
+        self.log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def record(
+    def write_event(
         self,
         event_type: EventType,
         actor: Actor,
@@ -109,23 +120,29 @@ class DecisionLogger:
         tokens: TokenUsage | None = None,
         debug: dict[str, Any] | None = None,
     ) -> DecisionEvent:
-        """Append one decision block and return it.
+        """Append one decision to the log file and return it.
 
-        `correlation_id` defaults to the one bound in the current context. A
-        decision with no correlation ID is a bug, so it raises instead of
-        writing an orphaned line. `debug` (full prompts, raw responses) is only
-        written when the logger is verbose.
+        If no correlation ID is passed, the currently bound one is used. A
+        decision with no correlation ID at all is a bug, so this raises rather
+        than writing a line that can't be traced. `debug` (full prompts and raw
+        responses) is only written when debug details are enabled.
         """
-        correlation_id = correlation_id or get_correlation_id()
         if correlation_id is None:
-            raise MissingCorrelationIdError(f"No correlation ID bound for {event_type}")
+            correlation_id = get_current_correlation_id()
+        if correlation_id is None:
+            raise MissingCorrelationIdError(f"No correlation ID is bound for {event_type}")
+
+        if self.include_debug_details:
+            debug_to_write = debug
+        else:
+            debug_to_write = None
 
         event = DecisionEvent(
             timestamp=datetime.now(UTC),
             correlation_id=correlation_id,
             event_id=str(uuid.uuid4()),
             parent_event_id=parent_event_id,
-            run_id=get_run_id(),
+            run_id=get_current_eval_run_id(),
             event_type=event_type,
             actor=actor,
             submission_id=submission_id,
@@ -137,21 +154,41 @@ class DecisionLogger:
             prompt_hash=prompt_hash,
             latency_ms=latency_ms,
             tokens=tokens,
-            debug=debug if self.verbose else None,
+            debug=debug_to_write,
         )
+
+        # Empty fields are left out to keep each line short and readable.
         line = event.model_dump_json(exclude_none=True, by_alias=True)
-        with self._lock, self.path.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        with self._write_lock:
+            with self.log_file_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(line + "\n")
         return event
 
-    def read_correlation(self, correlation_id: str) -> list[DecisionEvent]:
-        """Return all events for one correlation ID, in write order."""
-        if not self.path.exists():
+    def read_all_events(self) -> list[DecisionEvent]:
+        """Read every event in the log, in the order they were written.
+
+        This scans the whole file, which is fine at prototype log sizes.
+        """
+        if not self.log_file_path.exists():
             return []
+
         events = []
-        with self.path.open(encoding="utf-8") as f:
-            for line in f:
-                event = DecisionEvent.model_validate_json(line)
-                if event.correlation_id == correlation_id:
-                    events.append(event)
+        with self.log_file_path.open(encoding="utf-8") as log_file:
+            for line in log_file:
+                if line.strip():
+                    events.append(DecisionEvent.model_validate_json(line))
         return events
+
+    def read_events_for_correlation_id(self, correlation_id: str) -> list[DecisionEvent]:
+        matching_events = []
+        for event in self.read_all_events():
+            if event.correlation_id == correlation_id:
+                matching_events.append(event)
+        return matching_events
+
+    def read_events_for_feature(self, feature_id: int, event_type: EventType) -> list[DecisionEvent]:
+        matching_events = []
+        for event in self.read_all_events():
+            if event.feature_id == feature_id and event.event_type is event_type:
+                matching_events.append(event)
+        return matching_events

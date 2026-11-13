@@ -1,0 +1,6 @@
+[
+  {
+    "role": "assistant",
+    "content": "No LLM call: no candidates above the similarity threshold."
+  }
+]

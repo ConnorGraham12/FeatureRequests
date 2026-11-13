@@ -1,0 +1,60 @@
+{
+  "flow": "categories",
+  "reps": 3,
+  "metrics": [
+    {
+      "id": "correct",
+      "kind": "binary",
+      "label": "Correct"
+    },
+    {
+      "id": "exact",
+      "kind": "binary",
+      "label": "Exact gold"
+    },
+    {
+      "id": "invented",
+      "kind": "binary",
+      "label": "New category",
+      "better": "lower"
+    },
+    {
+      "id": "refused",
+      "kind": "binary",
+      "label": "Refused",
+      "better": "lower"
+    }
+  ],
+  "perf_fields": [
+    {
+      "id": "cost_usd",
+      "label": "Cost",
+      "unit": "$"
+    },
+    {
+      "id": "latency_s",
+      "label": "Latency",
+      "unit": "s"
+    }
+  ],
+  "prices": {
+    "claude-haiku-5-5": {
+      "in": 0.1,
+      "out": 0.5
+    },
+    "claude-sonnet-5-5": {
+      "in": 2.0,
+      "out": 10.0
+    }
+  },
+  "harness_paths": [
+    "evals/orbit/run_eval.py",
+    "evals/orbit/dataset.py",
+    "evals/orbit/taxonomy.json",
+    "evals/orbit/corpus.jsonl",
+    "evals/orbit/probes.jsonl",
+    "evals/orbit/judge_summary_v1.txt",
+    "requirements.txt"
+  ],
+  "harness_sha": "a056b3936a4da8c79fee2ea3fa8294ccacdf70853bafe136372704450cc14ec2"
+}

@@ -1,8 +1,12 @@
-"""Correlation and run IDs carried through a unit of work via contextvars.
+"""Correlation IDs and eval run IDs for the current unit of work.
 
 A correlation ID is created when a submission is received and stored on the
-submission, so a human review that happens days later can re-enter the same
-correlation scope. A run ID is set only during eval runs.
+submission. Every later decision about that submission, even one made days
+later, binds the same ID again so all of its log events can be found together.
+
+An eval run ID is only set while the eval runner is working.
+
+Both are stored in context variables, so each request (or thread) sees its own.
 """
 
 import uuid
@@ -10,11 +14,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-_correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
-_run_id: ContextVar[str | None] = ContextVar("run_id", default=None)
+_current_correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
+_current_eval_run_id: ContextVar[str | None] = ContextVar("eval_run_id", default=None)
 
 
-def new_correlation_id() -> str:
+def generate_correlation_id() -> str:
     return str(uuid.uuid4())
 
 
@@ -26,29 +30,29 @@ def is_valid_correlation_id(value: str) -> bool:
     return True
 
 
-def get_correlation_id() -> str | None:
-    return _correlation_id.get()
+def get_current_correlation_id() -> str | None:
+    return _current_correlation_id.get()
 
 
-def get_run_id() -> str | None:
-    return _run_id.get()
+def get_current_eval_run_id() -> str | None:
+    return _current_eval_run_id.get()
 
 
 @contextmanager
-def correlation_scope(correlation_id: str) -> Iterator[str]:
-    """Bind `correlation_id` for the duration of the block."""
-    token = _correlation_id.set(correlation_id)
+def bind_correlation_id(correlation_id: str) -> Iterator[str]:
+    """Make `correlation_id` the current one until the `with` block ends."""
+    token = _current_correlation_id.set(correlation_id)
     try:
         yield correlation_id
     finally:
-        _correlation_id.reset(token)
+        _current_correlation_id.reset(token)
 
 
 @contextmanager
-def run_scope(run_id: str) -> Iterator[str]:
-    """Bind an eval `run_id` for the duration of the block."""
-    token = _run_id.set(run_id)
+def bind_eval_run_id(run_id: str) -> Iterator[str]:
+    """Make `run_id` the current eval run ID until the `with` block ends."""
+    token = _current_eval_run_id.set(run_id)
     try:
         yield run_id
     finally:
-        _run_id.reset(token)
+        _current_eval_run_id.reset(token)

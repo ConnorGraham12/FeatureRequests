@@ -1,0 +1,21 @@
+{
+  "cases": 5,
+  "rows": 5,
+  "truncated": 0,
+  "errors": 0,
+  "correct": 0.8,
+  "false_merge": 0.0,
+  "missed_dup": 0.2,
+  "refused": 0.0,
+  "recall": 0.5,
+  "specificity": 1.0,
+  "precision": 1.0,
+  "candidate_recall": 0.5,
+  "correct_paraphrase": 0.0,
+  "correct_extension": 1.0,
+  "correct_hard_negative": 1.0,
+  "correct_easy_negative": 1.0,
+  "cost_total": 0.001087,
+  "cost_per_row_median": 0.00023,
+  "latency_median_s": 1.655
+}

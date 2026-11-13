@@ -1,0 +1,14 @@
+[
+  {
+    "role": "system",
+    "content": "You triage incoming feature requests for Orbit, a web-based project management product for teams. Your job is to decide whether a new request duplicates one of a few existing features that a similarity search found.\n\nTreat the request as a duplicate when it asks for the same capability as a candidate feature, even if it is worded very differently. A narrower or extended version of the same capability also counts, when one team would build them as one feature. For example, \"dark mode\" and \"dark mode that follows the OS setting\" are one feature.\n\nIt is not a duplicate when it is in the same product area but asks for a different capability. For example:\n- \"Slack notifications when a task changes\" vs. \"create tasks from a Slack message\"\n- \"export tasks to CSV\" vs. \"export a report as PDF\"\n- \"recurring tasks\" vs. \"task templates\"\n\nA wrong merge hides a distinct request from the product team, which costs more than a missed duplicate. When you are unsure, return null for duplicate_of_feature_id.\n\nChoose at most one feature, and only from the candidates given. List every other candidate under rejected_candidates with a short reason. Keep reasoning to one or two sentences.\n"
+  },
+  {
+    "role": "user",
+    "content": "New request:\n<request>\nTitle: Custom brand colours\nDescription: Let workspace admins set the app's accent colour and logo to match our company branding.\n</request>\n\nCandidate features:\n<candidate feature_id=\"27\" similarity=\"0.64\">\nTitle: Dark mode\nSummary: A dark color theme for the web app, to reduce eye strain when working at night.\n</candidate>\n<candidate feature_id=\"26\" similarity=\"0.60\">\nTitle: Enforce two-factor authentication\nSummary: Let workspace admins require every member to set up two-factor authentication.\n</candidate>"
+  },
+  {
+    "role": "assistant",
+    "content": "{\n  \"duplicate_of_feature_id\": null,\n  \"confidence\": 0.93,\n  \"reasoning\": \"The request asks for admin-controlled custom accent colour and logo for company branding, which is a different capability from a dark colour theme for eye strain. The two-factor authentication candidate is unrelated.\",\n  \"rejected_candidates\": [\n    {\n      \"feature_id\": 27,\n      \"reason\": \"Dark mode is a light/dark theme for reducing eye strain, not admin-configurable brand colours and logo.\"\n    },\n    {\n      \"feature_id\": 26,\n      \"reason\": \"Enforcing two-factor authentication is a security policy, unrelated to branding or appearance.\"\n    }\n  ]\n}"
+  }
+]

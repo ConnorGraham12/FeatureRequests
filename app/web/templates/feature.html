@@ -1,25 +1,83 @@
 {% extends "base.html" %}
 {% block title %}{{ feature.id|fid }} {{ feature.title }} · Feature Triage{% endblock %}
 {% block content %}
-{% set subs = feature.submissions %}
-<div class="panel">
+{% set active_subs = feature.active_submissions %}
+
+{% if feature.is_archived %}
+<div class="banner">
+  <span>This feature was deleted on {{ feature.archived_at.strftime("%Y-%m-%d") }}. It's hidden from lists and duplicate search.</span>
+  <form method="post" action="/features/{{ feature.id }}/restore">
+    <button class="primary" type="submit">Restore feature</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="panel" data-toolbar-group>
   <div class="row">
     <span class="mono muted">FEATURE {{ feature.id|fid }}</span>
-    <span class="badge ok">{{ feature.status }}</span>
+    {% if not feature.is_archived %}
+    <div class="toolbar" role="toolbar" aria-label="Feature actions">
+      <button type="button" data-panel="edit-panel" aria-expanded="false" aria-controls="edit-panel">Edit</button>
+      <button type="button" data-panel="category-panel" aria-expanded="false" aria-controls="category-panel">Change category</button>
+      <form method="post" action="/features/{{ feature.id }}/archive"
+            onsubmit="return confirm('Delete this feature? It will be hidden, and you can restore it later.');">
+        <button class="danger" type="submit">Delete</button>
+      </form>
+    </div>
+    {% else %}
+    <span class="badge warn">deleted</span>
+    {% endif %}
   </div>
   <h1>{{ feature.title }}</h1>
   <p class="muted">{{ feature.category.name if feature.category else "Uncategorized" }}</p>
   <p>{{ feature.summary }}</p>
   <p class="small muted">
-    {{ subs|length }} submission{{ '' if subs|length == 1 else 's' }}
-    {% if subs %} · First seen {{ subs[0].created_at.strftime("%Y-%m-%d") }} · Last seen {{ subs[-1].created_at.strftime("%Y-%m-%d") }}{% endif %}
+    {{ active_subs|length }} submission{{ '' if active_subs|length == 1 else 's' }}
+    {% if active_subs %} · First seen {{ active_subs[0].created_at.strftime("%Y-%m-%d") }} · Last seen {{ active_subs[-1].created_at.strftime("%Y-%m-%d") }}{% endif %}
   </p>
+  {% for change in reassignments %}
+  <p class="small muted">
+    Re-categorized {{ change.timestamp.strftime("%Y-%m-%d %H:%M") }} by {{ change.actor.reviewer }}:
+    {{ change.payload.from_category_name or "Uncategorized" }} → {{ change.payload.to_category_name }}{% if change.payload.reason %} · "{{ change.payload.reason }}"{% endif %}
+  </p>
+  {% endfor %}
+
+  {% if not feature.is_archived %}
+  <div class="tool-panel" id="edit-panel" hidden>
+    <form method="post" action="/features/{{ feature.id }}/edit">
+      <label for="edit-title">Title</label>
+      <input type="text" id="edit-title" name="title" maxlength="200" value="{{ feature.title }}" required>
+      <label for="edit-summary">Summary</label>
+      <textarea id="edit-summary" name="summary" required>{{ feature.summary }}</textarea>
+      <p class="small muted">The original submissions below are never changed.</p>
+      <div class="actions"><button class="primary" type="submit">Save changes</button></div>
+    </form>
+  </div>
+
+  <div class="tool-panel" id="category-panel" hidden>
+    <form method="post" action="/features/{{ feature.id }}/category">
+      <label for="category_id">Move to an existing category</label>
+      <select id="category_id" name="category_id">
+        <option value="">Choose…</option>
+        {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+      <p class="small muted">Or create a new category instead:</p>
+      <label for="new_name">New category name</label>
+      <input type="text" id="new_name" name="new_name" maxlength="100">
+      <label for="new_description">New category description</label>
+      <input type="text" id="new_description" name="new_description">
+      <label for="reason">Reason (optional, recorded in the decision log)</label>
+      <input type="text" id="reason" name="reason" placeholder="e.g. Wrong category picked by mistake">
+      <div class="actions"><button class="primary" type="submit">Change category</button></div>
+    </form>
+  </div>
+  {% endif %}
 </div>
 
 <div class="panel">
   <h2>Merged submissions</h2>
-  {% for s in subs %}
-  <div class="submission">
+  {% for s in feature.submissions %}
+  <div class="submission {{ 'archived' if s.is_archived }}" data-toolbar-group>
     <div class="row">
       <strong>"{{ s.title }}"</strong>
       <span class="mono muted">{{ s.id|sid }} · {{ s.created_at.strftime("%Y-%m-%d") }}</span>
@@ -27,7 +85,9 @@
     <div>{{ s.description }}</div>
     <div class="meta">
       {% set m = merges.get(s.id) %}
-      {% if s.status == "new_feature" %}
+      {% if s.is_archived %}
+        Deleted {{ s.archived_at.strftime("%Y-%m-%d") }}. Not counted, and not used in duplicate search.
+      {% elif s.status == "new_feature" %}
         Original (created this feature)
       {% elif m %}
         {% set sim = m.payload.candidates | selectattr("feature_id", "equalto", feature.id) | map(attribute="similarity") | first %}
@@ -39,6 +99,41 @@
       {% endif %}
       · <span class="mono">{{ s.correlation_id }}</span>
     </div>
+
+    {% if not feature.is_archived %}
+    <div class="toolbar" role="toolbar" aria-label="Actions for {{ s.id|sid }}" style="margin-top:8px">
+      {% if s.is_archived %}
+        <form method="post" action="/submissions/{{ s.id }}/restore">
+          <button type="submit">Restore</button>
+        </form>
+      {% elif active_subs|length > 1 %}
+        <form method="post" action="/submissions/{{ s.id }}/unmerge"
+              onsubmit="return confirm('Split {{ s.id|sid }} out into its own new feature?');">
+          <button type="submit">Unmerge</button>
+        </form>
+        <button type="button" data-panel="move-panel-{{ s.id }}" aria-expanded="false" aria-controls="move-panel-{{ s.id }}">Move to…</button>
+        <form method="post" action="/submissions/{{ s.id }}/archive"
+              onsubmit="return confirm('Delete {{ s.id|sid }} from this feature? You can restore it later.');">
+          <button class="danger" type="submit">Delete</button>
+        </form>
+      {% else %}
+        <span class="small muted">The only submission in this feature. Delete the feature instead.</span>
+      {% endif %}
+    </div>
+
+    {% if not s.is_archived and active_subs|length > 1 %}
+    <div class="tool-panel" id="move-panel-{{ s.id }}" hidden>
+      <form method="post" action="/submissions/{{ s.id }}/move">
+        <label for="target-{{ s.id }}">Move {{ s.id|sid }} to feature</label>
+        <select id="target-{{ s.id }}" name="target_feature_id" required>
+          <option value="">Choose…</option>
+          {% for f in other_features %}<option value="{{ f.id }}">{{ f.id|fid }} · {{ f.title }}</option>{% endfor %}
+        </select>
+        <div class="actions"><button class="primary" type="submit">Move submission</button></div>
+      </form>
+    </div>
+    {% endif %}
+    {% endif %}
   </div>
   {% endfor %}
 </div>

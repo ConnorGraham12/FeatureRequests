@@ -1,0 +1,74 @@
+{
+  "flow": "summaries",
+  "reps": 3,
+  "metrics": [
+    {
+      "id": "all_pass",
+      "kind": "binary",
+      "label": "All checks"
+    },
+    {
+      "id": "keeps_existing",
+      "kind": "judge",
+      "label": "Keeps points"
+    },
+    {
+      "id": "adds_new_info",
+      "kind": "judge",
+      "label": "Adds new info"
+    },
+    {
+      "id": "no_fabrication",
+      "kind": "judge",
+      "label": "No invention"
+    },
+    {
+      "id": "flag_consistent",
+      "kind": "judge",
+      "label": "Flag right"
+    },
+    {
+      "id": "format_ok",
+      "kind": "binary",
+      "label": "Format"
+    },
+    {
+      "id": "refused",
+      "kind": "binary",
+      "label": "Refused",
+      "better": "lower"
+    }
+  ],
+  "perf_fields": [
+    {
+      "id": "cost_usd",
+      "label": "Cost",
+      "unit": "$"
+    },
+    {
+      "id": "latency_s",
+      "label": "Latency",
+      "unit": "s"
+    }
+  ],
+  "prices": {
+    "claude-haiku-5-5": {
+      "in": 0.1,
+      "out": 0.5
+    },
+    "claude-sonnet-5-5": {
+      "in": 2.0,
+      "out": 10.0
+    }
+  },
+  "harness_paths": [
+    "evals/orbit/run_eval.py",
+    "evals/orbit/dataset.py",
+    "evals/orbit/taxonomy.json",
+    "evals/orbit/corpus.jsonl",
+    "evals/orbit/probes.jsonl",
+    "evals/orbit/judge_summary_v1.txt",
+    "requirements.txt"
+  ],
+  "harness_sha": "a056b3936a4da8c79fee2ea3fa8294ccacdf70853bafe136372704450cc14ec2"
+}

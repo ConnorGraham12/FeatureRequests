@@ -1,0 +1,13 @@
+{
+  "cases": 3,
+  "rows": 3,
+  "truncated": 0,
+  "errors": 0,
+  "correct": 1.0,
+  "exact": 1.0,
+  "invented": 0.0,
+  "refused": 0.0,
+  "cost_total": 0.000688,
+  "cost_per_row_median": 0.00023,
+  "latency_median_s": 2.15
+}

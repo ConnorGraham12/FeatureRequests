@@ -1,54 +1,22 @@
-"""Embedding storage and brute-force cosine search.
-
-Fine for thousands of submissions. Swap for sqlite-vec or pgvector when it isn't.
-"""
-
-from collections.abc import Sequence
-from dataclasses import dataclass
+"""Converting embeddings to and from bytes for storage, and comparing them."""
 
 import numpy as np
 
-DTYPE = np.float32
+VECTOR_DTYPE = np.float32
 
 
-def to_blob(vector: np.ndarray) -> bytes:
-    return np.asarray(vector, dtype=DTYPE).tobytes()
+def vector_to_bytes(vector: np.ndarray) -> bytes:
+    return np.asarray(vector, dtype=VECTOR_DTYPE).tobytes()
 
 
-def from_blob(blob: bytes) -> np.ndarray:
-    return np.frombuffer(blob, dtype=DTYPE)
+def bytes_to_vector(stored_bytes: bytes) -> np.ndarray:
+    return np.frombuffer(stored_bytes, dtype=VECTOR_DTYPE)
 
 
-@dataclass(frozen=True)
-class Match:
-    id: int
-    similarity: float
-
-
-def top_k(
-    query: np.ndarray,
-    candidates: np.ndarray,
-    ids: Sequence[int],
-    k: int,
-    threshold: float = -1.0,
-) -> list[Match]:
-    """Return up to `k` candidates with cosine similarity >= `threshold`, best first.
-
-    `candidates` is an (n, d) matrix whose rows line up with `ids`.
-    """
-    if len(ids) == 0:
-        return []
-    if candidates.shape[0] != len(ids):
-        raise ValueError("candidates and ids must have the same length")
-
-    q = query / (np.linalg.norm(query) or 1.0)
-    norms = np.linalg.norm(candidates, axis=1)
-    norms[norms == 0] = 1.0
-    scores = (candidates / norms[:, None]) @ q
-
-    order = np.argsort(-scores)[:k]
-    return [
-        Match(id=int(ids[i]), similarity=float(scores[i]))
-        for i in order
-        if scores[i] >= threshold
-    ]
+def cosine_similarity(first: np.ndarray, second: np.ndarray) -> float:
+    """Similarity between two vectors, from -1 (opposite) to 1 (identical direction)."""
+    first_length = np.linalg.norm(first)
+    second_length = np.linalg.norm(second)
+    if first_length == 0 or second_length == 0:
+        return 0.0
+    return float(np.dot(first, second) / (first_length * second_length))

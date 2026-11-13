@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from app.observability.correlation import correlation_scope, new_correlation_id, run_scope
+from app.observability.correlation import (
+    bind_correlation_id,
+    bind_eval_run_id,
+    generate_correlation_id,
+)
 from app.observability.decision_log import (
     Actor,
     DecisionLogger,
@@ -12,23 +16,25 @@ from app.observability.decision_log import (
 )
 
 
-def test_events_share_correlation_id_and_chain_by_parent(tmp_path):
-    log = DecisionLogger(tmp_path / "decisions.jsonl")
-    cid = new_correlation_id()
+def test_events_share_correlation_id_and_link_to_their_parent(tmp_path):
+    decision_log = DecisionLogger(tmp_path / "decisions.jsonl")
+    correlation_id = generate_correlation_id()
 
-    with correlation_scope(cid):
-        received = log.record(EventType.SUBMISSION_RECEIVED, Actor.system(), submission_id=1)
-        judged = log.record(
+    with bind_correlation_id(correlation_id):
+        received = decision_log.write_event(
+            EventType.SUBMISSION_RECEIVED, Actor.for_system(), submission_id=1
+        )
+        judged = decision_log.write_event(
             EventType.DUPLICATE_JUDGMENT,
-            Actor.ai("claude-opus-5-5"),
+            Actor.for_ai_model("claude-haiku-5-5"),
             parent_event_id=received.event_id,
             submission_id=1,
             confidence=0.81,
             tokens=TokenUsage(input=612, output=88),
         )
 
-    events = log.read_correlation(cid)
-    assert [e.event_type for e in events] == [
+    events = decision_log.read_events_for_correlation_id(correlation_id)
+    assert [event.event_type for event in events] == [
         EventType.SUBMISSION_RECEIVED,
         EventType.DUPLICATE_JUDGMENT,
     ]
@@ -36,52 +42,62 @@ def test_events_share_correlation_id_and_chain_by_parent(tmp_path):
     assert events[1].event_id == judged.event_id
 
 
-def test_one_json_line_per_event_with_compact_fields(tmp_path):
-    path = tmp_path / "decisions.jsonl"
-    log = DecisionLogger(path)
-    with correlation_scope(new_correlation_id()):
-        log.record(EventType.SUBMISSION_RECEIVED, Actor.system())
-        log.record(
+def test_each_event_is_one_json_line_without_empty_fields(tmp_path):
+    log_path = tmp_path / "decisions.jsonl"
+    decision_log = DecisionLogger(log_path)
+    with bind_correlation_id(generate_correlation_id()):
+        decision_log.write_event(EventType.SUBMISSION_RECEIVED, Actor.for_system())
+        decision_log.write_event(
             EventType.CATEGORY_PROPOSED,
-            Actor.ai("claude-opus-5-5"),
+            Actor.for_ai_model("claude-haiku-5-5"),
             tokens=TokenUsage(input=10, output=2),
         )
 
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = log_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
-    first, second = (json.loads(line) for line in lines)
-    assert "confidence" not in first  # None fields are omitted
-    assert second["tokens"] == {"in": 10, "out": 2}
+    first_event = json.loads(lines[0])
+    second_event = json.loads(lines[1])
+    assert "confidence" not in first_event
+    assert second_event["tokens"] == {"in": 10, "out": 2}
 
 
-def test_human_decision_days_later_rejoins_correlation(tmp_path):
-    log = DecisionLogger(tmp_path / "decisions.jsonl")
-    cid = new_correlation_id()
-    with correlation_scope(cid):
-        log.record(EventType.SUBMISSION_RECEIVED, Actor.system())
+def test_a_later_human_decision_joins_the_same_trace(tmp_path):
+    decision_log = DecisionLogger(tmp_path / "decisions.jsonl")
+    correlation_id = generate_correlation_id()
+    with bind_correlation_id(correlation_id):
+        decision_log.write_event(EventType.SUBMISSION_RECEIVED, Actor.for_system())
 
-    # Later request, different context: pass the stored ID explicitly.
-    log.record(EventType.MERGE_DECISION, Actor.human("pm"), correlation_id=cid)
+    # A later request in a different context passes the stored ID explicitly.
+    decision_log.write_event(
+        EventType.MERGE_DECISION, Actor.for_human_reviewer("pm"), correlation_id=correlation_id
+    )
 
-    assert len(log.read_correlation(cid)) == 2
+    assert len(decision_log.read_events_for_correlation_id(correlation_id)) == 2
 
 
-def test_recording_without_correlation_id_raises(tmp_path):
-    log = DecisionLogger(tmp_path / "decisions.jsonl")
+def test_writing_without_a_correlation_id_raises(tmp_path):
+    decision_log = DecisionLogger(tmp_path / "decisions.jsonl")
     with pytest.raises(MissingCorrelationIdError):
-        log.record(EventType.SUBMISSION_RECEIVED, Actor.system())
+        decision_log.write_event(EventType.SUBMISSION_RECEIVED, Actor.for_system())
 
 
-def test_debug_only_written_when_verbose(tmp_path):
-    quiet = DecisionLogger(tmp_path / "quiet.jsonl")
-    loud = DecisionLogger(tmp_path / "loud.jsonl", verbose=True)
-    with correlation_scope(new_correlation_id()):
-        assert quiet.record(EventType.PIPELINE_ERROR, Actor.system(), debug={"x": 1}).debug is None
-        assert loud.record(EventType.PIPELINE_ERROR, Actor.system(), debug={"x": 1}).debug == {"x": 1}
+def test_debug_details_are_only_written_when_enabled(tmp_path):
+    without_debug = DecisionLogger(tmp_path / "plain.jsonl")
+    with_debug = DecisionLogger(tmp_path / "debug.jsonl", include_debug_details=True)
+    with bind_correlation_id(generate_correlation_id()):
+        plain_event = without_debug.write_event(
+            EventType.PIPELINE_ERROR, Actor.for_system(), debug={"x": 1}
+        )
+        debug_event = with_debug.write_event(
+            EventType.PIPELINE_ERROR, Actor.for_system(), debug={"x": 1}
+        )
+    assert plain_event.debug is None
+    assert debug_event.debug == {"x": 1}
 
 
-def test_run_id_recorded_inside_eval_run(tmp_path):
-    log = DecisionLogger(tmp_path / "decisions.jsonl")
-    with run_scope("eval-001"), correlation_scope(new_correlation_id()):
-        event = log.record(EventType.SUBMISSION_RECEIVED, Actor.system())
+def test_eval_run_id_is_recorded_during_an_eval_run(tmp_path):
+    decision_log = DecisionLogger(tmp_path / "decisions.jsonl")
+    with bind_eval_run_id("eval-001"):
+        with bind_correlation_id(generate_correlation_id()):
+            event = decision_log.write_event(EventType.SUBMISSION_RECEIVED, Actor.for_system())
     assert event.run_id == "eval-001"

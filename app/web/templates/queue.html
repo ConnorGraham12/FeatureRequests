@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Review queue · Feature Triage{% endblock %}
+{% block content %}
+<h1>Review queue</h1>
+<p class="muted">{{ submissions|length }} submission{{ '' if submissions|length == 1 else 's' }} awaiting a decision.</p>
+<div class="panel">
+  {% if submissions %}
+  <table>
+    <thead><tr><th>ID</th><th>Title</th><th>AI proposal</th><th>Submitted</th></tr></thead>
+    <tbody>
+    {% for s in submissions %}
+      {% set pending = s.proposals | selectattr("status", "equalto", "pending") | map(attribute="type") | list %}
+      <tr>
+        <td class="mono">{{ s.id|sid }}</td>
+        <td><a href="/submissions/{{ s.id }}">{{ s.title }}</a></td>
+        <td>
+          {% if "duplicate" in pending %}<span class="badge warn">Duplicate</span>
+          {% elif "new_category" in pending %}<span class="badge">New category</span>
+          {% elif "category" in pending %}<span class="badge">Category</span>
+          {% else %}<span class="badge">Manual</span>{% endif %}
+        </td>
+        <td class="small muted">{{ s.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Nothing to review.</p>
+  {% endif %}
+</div>
+{% endblock %}

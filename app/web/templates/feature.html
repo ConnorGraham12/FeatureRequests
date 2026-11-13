@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ feature.id|fid }} {{ feature.title }} · Feature Triage{% endblock %}
+{% block content %}
+{% set subs = feature.submissions %}
+<div class="panel">
+  <div class="row">
+    <span class="mono muted">FEATURE {{ feature.id|fid }}</span>
+    <span class="badge ok">{{ feature.status }}</span>
+  </div>
+  <h1>{{ feature.title }}</h1>
+  <p class="muted">{{ feature.category.name if feature.category else "Uncategorized" }}</p>
+  <p>{{ feature.summary }}</p>
+  <p class="small muted">
+    {{ subs|length }} submission{{ '' if subs|length == 1 else 's' }}
+    {% if subs %} · First seen {{ subs[0].created_at.strftime("%Y-%m-%d") }} · Last seen {{ subs[-1].created_at.strftime("%Y-%m-%d") }}{% endif %}
+  </p>
+</div>
+
+<div class="panel">
+  <h2>Merged submissions</h2>
+  {% for s in subs %}
+  <div class="submission">
+    <div class="row">
+      <strong>"{{ s.title }}"</strong>
+      <span class="mono muted">{{ s.id|sid }} · {{ s.created_at.strftime("%Y-%m-%d") }}</span>
+    </div>
+    <div>{{ s.description }}</div>
+    <div class="meta">
+      {% set m = merges.get(s.id) %}
+      {% if s.status == "new_feature" %}
+        Original (created this feature)
+      {% elif m %}
+        {% set sim = m.payload.candidates | selectattr("feature_id", "equalto", feature.id) | map(attribute="similarity") | first %}
+        Merged · similarity {{ sim|pct }} · LLM confidence {{ m.confidence|pct }}<br>
+        Reason: {{ m.reasoning }}<br>
+        Approved {{ m.decided_at.strftime("%Y-%m-%d") }} by {{ m.decided_by }}{% if s.id in summary_updates %} · Summary updated{% endif %}
+      {% else %}
+        Merged
+      {% endif %}
+      · <span class="mono">{{ s.correlation_id }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

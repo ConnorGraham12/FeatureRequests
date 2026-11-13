@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Categories · Feature Triage{% endblock %}
+{% block content %}
+<h1>Categories</h1>
+
+{% for proposal in taxonomy_proposals %}
+<div class="panel flag">
+  <h2>Proposed taxonomy</h2>
+  <p class="muted">{{ proposal.reasoning }}</p>
+  <form method="post" action="/proposals/{{ proposal.id }}/taxonomy">
+    <table>
+      <thead><tr><th>Keep</th><th>Name</th><th>Description</th></tr></thead>
+      <tbody>
+      {% for c in proposal.payload.categories %}
+        <tr>
+          <td><input type="checkbox" name="include_{{ loop.index0 }}" value="1" checked aria-label="Keep {{ c.name }}"></td>
+          <td><input type="text" name="name_{{ loop.index0 }}" value="{{ c.name }}"></td>
+          <td><input type="text" name="description_{{ loop.index0 }}" value="{{ c.description }}"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions">
+      <button class="primary" type="submit" name="decision" value="edit">Approve kept categories</button>
+      <button class="danger" type="submit" name="decision" value="reject">Reject all</button>
+    </div>
+  </form>
+</div>
+{% endfor %}
+
+<div class="panel">
+  {% if categories %}
+  <table>
+    <thead><tr><th>Name</th><th>Description</th><th>Features</th></tr></thead>
+    <tbody>
+    {% for c in categories %}
+      <tr>
+        <td><a href="/features?category={{ c.id }}">{{ c.name }}</a></td>
+        <td class="muted">{{ c.description }}</td>
+        <td>{{ counts.get(c.id, 0) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No categories yet. Generate a starting taxonomy with
+    <span class="mono">python -m app.cli bootstrap-taxonomy requests.jsonl</span>,
+    or approve the AI's new-category proposals as submissions arrive.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,5 @@
+You design the category taxonomy for feature requests to Orbit, a web-based project management product for teams. You are given a batch of feature requests.
+
+Propose between 5 and 10 categories that together cover these requests and the kinds of requests likely to follow. Each category should group requests by product area or capability, so the team that would build them is clear. Categories should not overlap; if two would often compete for the same request, merge them.
+
+Give each category a short name of one to four words and a one-sentence description of what it covers. Keep reasoning to two or three sentences.

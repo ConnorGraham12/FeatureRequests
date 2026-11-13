@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Features · Feature Triage{% endblock %}
+{% block content %}
+<div class="row">
+  <h1>Features</h1>
+  <form method="get" action="/features">
+    <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
+      <option value="">All categories</option>
+      {% for c in categories %}<option value="{{ c.id }}" {{ "selected" if c.id == selected }}>{{ c.name }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+<div class="panel">
+  {% if rows %}
+  <table>
+    <thead><tr><th>ID</th><th>Feature</th><th>Category</th><th>Requests</th></tr></thead>
+    <tbody>
+    {% for feature, n in rows %}
+      <tr>
+        <td class="mono">{{ feature.id|fid }}</td>
+        <td><a href="/features/{{ feature.id }}">{{ feature.title }}</a></td>
+        <td>{{ feature.category.name if feature.category else "—" }}</td>
+        <td>{{ n }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No features yet. Approved submissions appear here.</p>
+  {% endif %}
+</div>
+{% endblock %}

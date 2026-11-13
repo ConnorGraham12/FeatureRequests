@@ -1,0 +1,36 @@
+[2026-11-12T19:59:51-05:00]
+Prompt: Create a CLAUDE.md file in the project root with a "Project Rules" section containing a "Prompt Logging" rule (append every prompt to prompts.txt with an ISO 8601 timestamp and a brief summary of the response).
+Response: Created CLAUDE.md with the Prompt Logging rule and created prompts.txt with this first entry.
+
+[2026-11-12T20:12:52-05:00]
+Prompt: Iterate on a plan (no code yet) for a FastAPI/Python dashboard that helps PMs triage high volumes of unstructured feature requests. AI is core (duplicate detection, categorization), with human gates on any state change. Focus on architecture first.
+Response: Proposed an architecture in chat: ingestion layer, Postgres+pgvector store, async AI worker pipeline (embed -> candidate retrieval -> LLM dedupe/categorize), AI-as-proposals with a human review queue, request state machine, append-only audit log, and feedback loop. Listed open questions for the user. No code written.
+
+[2026-11-12T20:22:06-05:00]
+Prompt: Scope is too large for iteration 1. Cut down to a focused prototype that proves the triage pipeline works, with a simple HTML entry page (title + description).
+Response: Proposed a minimal prototype plan in chat: single FastAPI app, SQLite, one HTML form, synchronous LLM call for duplicate detection + categorization against a fixed category list, a simple approve/reject gate, and seed data to validate results. Deferred queues, embeddings, auth, ingestion sources, and the feedback loop. No code written.
+
+[2026-11-12T20:26:18-05:00]
+Prompt: Expand categorization: embeddings still required (local preferred), categories should be determined by a model API call rather than fixed, and plan for an eventual evaluation suite of similar/dissimilar feature pairs. Amend the plan.
+Response: Amended the prototype plan in chat: local sentence-transformers embeddings stored in SQLite with numpy cosine search, two-stage duplicate detection (embedding retrieval -> LLM judge), LLM-driven taxonomy (bootstrap call to propose categories + per-request assign-or-propose-new, with new categories human-gated), and an eval suite design (JSONL pairs incl. hard negatives, category gold labels, per-stage metrics). Pipeline kept decoupled from the web layer so evals can call it directly. No code written.
+
+[2026-11-12T20:36:12-05:00]
+Prompt: Answers: (1) Claude API confirmed; (2) duplicates should be consolidated - mock up the merged format for review; (3) on rejection, save with the category the reviewer picks, never discard; (4) no real data - create mock feature categories for a hypothetical software product.
+Response: Updated plan in chat: split data model into Features (canonical, consolidated) and Submissions (raw, preserved verbatim) so merges are reversible; mocked up the merged feature record and the merge review screen; set rejection behavior to manual category pick; defined hypothetical product "Orbit" (team project management SaaS) with 8 mock categories as the gold taxonomy, plus seed/eval data composition. No code written.
+
+[2026-11-12T20:42:17-05:00]
+Prompt: (1) App is web only (resolves dark mode question); (2) merge mockup approved; (3) the summary and all other runtime decisions must be logged to a separate file, one log entry per decision block, tied together with a correlation ID for observability.
+Response: Updated plan in chat: removed Mobile App category and proposed Automation & Workflows as replacement, revised hard negatives for web-only; added a decision log design (dedicated JSONL file, one entry per decision event, correlation ID created at submission and carried through pipeline + later human review), listed decision event types and fields, and mocked a full correlated log trace for the dark-mode merge example. No code written.
+
+[2026-11-12T20:55:15-05:00]
+Prompt: Answers: one decision log file is fine; no replacement category (Mobile removed, 7 categories); reviewer "pm" (typed "om") is enough. Build the foundational code layer for review.
+Response: Built the foundation: config (pydantic-settings, .env.example), correlation-ID contextvars + FastAPI middleware (X-Correlation-ID), append-only JSONL DecisionLogger with event types/actors/tokens, SQLAlchemy models (Category, Feature, Submission, Proposal) on SQLite, human-gate rules for proposals (rejected category requires reviewer's category), local sentence-transformers embedder + numpy cosine top-k, versioned prompt loader, and a Claude API structured-output wrapper (claude-opus-5-5, server-side refusal fallbacks). 18 tests pass; embedding smoke test ranked the dark-mode paraphrase top (0.88). No pipeline stages, pages, or seed data yet. Nothing committed.
+
+[2026-11-12T21:12:36-05:00]
+Prompt: Replace the deprecated decorators asynccontextmanager and contextmanager.
+Response: Checked before changing anything: neither decorator is deprecated (no DeprecationWarning under -W error; test suite also clean with deprecations as errors). Made no code change; explained that FastAPI's on_event is the deprecated API and lifespan + asynccontextmanager is its replacement, offered class-based context managers if preferred. Also flagged that the user's change of LLM_MODEL to claude-haiku-4-5-20251001 conflicts with the effort and fallbacks parameters in app/ai/llm.py.
+
+[2026-11-12T21:16:13-05:00]
+Prompt: Model corrected (claude-haiku-5-5). Move forward with the next phase.
+Response: Built phase 2: pipeline stages + v1 prompts (duplicate judge, summary, categorize, taxonomy); triage/review/taxonomy services where only human decisions attach submissions to features, with every step logged under the submission's correlation ID; LLM failures degrade to manual categorization; Jinja pages (submit, review queue, review, features, feature detail in the approved merge format, categories with taxonomy approval); bootstrap-taxonomy CLI. Set fallbacks off by default (Haiku has none). 34 tests pass with a fake LLM and embedder; no live Claude API call made yet. Nothing committed.
+

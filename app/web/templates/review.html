@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Review {{ submission.id|sid }} · Feature Triage{% endblock %}
+{% block content %}
+<div class="row">
+  <h1>{{ submission.title }}</h1>
+  <span class="mono muted">{{ submission.id|sid }}</span>
+</div>
+<p class="small muted">Submitted {{ submission.created_at.strftime("%Y-%m-%d %H:%M") }} · Correlation ID <span class="mono">{{ submission.correlation_id }}</span></p>
+
+{% if duplicate %}
+<div class="panel flag">
+  <div class="row"><h2>Duplicate detected</h2><span class="badge warn">Confidence {{ duplicate.confidence|pct }}</span></div>
+  <div class="cols">
+    <div class="box">
+      <div class="small muted">New submission</div>
+      <strong>{{ submission.title }}</strong>
+      <p>{{ submission.description }}</p>
+    </div>
+    <div class="box">
+      <div class="small muted">Existing feature {{ target.id|fid }}</div>
+      <strong>{{ target.title }}</strong>
+      <p>{{ target.summary }}</p>
+      <div class="small muted">{{ target.submissions|length }} submission{{ '' if target.submissions|length == 1 else 's' }} · {{ target.category.name if target.category else "Uncategorized" }}</div>
+    </div>
+  </div>
+  <p><strong>AI reasoning:</strong> {{ duplicate.reasoning }}</p>
+
+  {% set others = duplicate.payload.rejected %}
+  {% if others %}
+  <p class="small muted">Other candidates considered:
+    {% for r in others %}
+      {% set c = duplicate.payload.candidates | selectattr("feature_id", "equalto", r.feature_id) | first %}
+      {{ r.feature_id|fid }} "{{ c.title if c else '?' }}"{% if c %} ({{ c.similarity|pct }}){% endif %}, not a duplicate: {{ r.reason }}{{ ";" if not loop.last }}
+    {% endfor %}
+  </p>
+  {% endif %}
+
+  <form method="post" action="/proposals/{{ duplicate.id }}/merge">
+    {% if summary %}
+      <h2 style="margin-top:16px">Proposed summary update</h2>
+      {% if summary.payload.changed %}
+      <div class="diff">
+        <div class="del">− {{ summary.payload.old }}</div>
+        <div class="add">+ {{ summary.payload.new }}</div>
+      </div>
+      {% else %}
+      <p class="small muted">The AI found no new information; the summary stays the same.</p>
+      {% endif %}
+      <label for="summary">Summary (edit before approving if needed)</label>
+      <textarea id="summary" name="summary">{{ summary.payload.new }}</textarea>
+    {% else %}
+      <label for="summary">Summary (no AI update available; edit if needed)</label>
+      <textarea id="summary" name="summary">{{ target.summary }}</textarea>
+    {% endif %}
+    <div class="actions">
+      <button class="primary" type="submit" name="action" value="approve">Approve merge</button>
+      <button type="submit" name="action" value="reject">Not a duplicate → new feature</button>
+    </div>
+  </form>
+</div>
+
+{% elif category_proposal %}
+{% set p = category_proposal.payload %}
+<div class="panel">
+  <div class="row">
+    <h2>{{ "New category proposed" if category_proposal.type == "new_category" else "Category suggestion" }}</h2>
+    <span class="badge">Confidence {{ category_proposal.confidence|pct }}</span>
+  </div>
+  <div class="box">
+    <strong>{{ submission.title }}</strong>
+    <p>{{ submission.description }}</p>
+  </div>
+
+  {% if category_proposal.type == "category" %}
+    {% set suggested = categories_by_id.get(p.category_id) %}
+    <p><strong>AI suggests:</strong> {{ suggested.name if suggested else "no valid category, choose one below" }}</p>
+  {% else %}
+    <p><strong>AI suggests a new category:</strong> {{ p.new_category_name or "(no name given)" }}, {{ p.new_category_description or "" }}</p>
+  {% endif %}
+  <p><strong>AI reasoning:</strong> {{ category_proposal.reasoning }}</p>
+
+  {% if p.duplicate_check %}
+  <p class="small muted">
+    {% if p.duplicate_check.error %}{{ p.duplicate_check.error }}{% else %}Possible duplicates were checked and ruled out: {{ p.duplicate_check.reasoning }}{% endif %}
+    {% for c in p.duplicate_check.candidates %}{{ " " if loop.first }}<a href="/features/{{ c.feature_id }}">{{ c.feature_id|fid }}</a> "{{ c.title }}" ({{ c.similarity|pct }}){{ ";" if not loop.last }}{% endfor %}
+  </p>
+  {% endif %}
+
+  <form method="post" action="/proposals/{{ category_proposal.id }}/category">
+    <label for="summary">Feature summary</label>
+    <textarea id="summary" name="summary">{{ p.feature_summary }}</textarea>
+
+    {% if category_proposal.type == "new_category" %}
+    <label for="name">New category name (edit to change)</label>
+    <input type="text" id="name" name="name" value="{{ p.new_category_name or '' }}">
+    <label for="description">New category description</label>
+    <input type="text" id="description" name="description" value="{{ p.new_category_description or '' }}">
+    {% endif %}
+
+    <label for="category_id">Or choose an existing category</label>
+    <select id="category_id" name="category_id">
+      <option value="">Choose…</option>
+      {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+
+    <div class="actions">
+      {% if category_proposal.type == "category" %}
+        <button class="primary" type="submit" name="decision" value="approve">Approve suggestion</button>
+        <button type="submit" name="decision" value="reject">Reject → use chosen category</button>
+      {% else %}
+        <button class="primary" type="submit" name="decision" value="approve">Create category as suggested</button>
+        <button type="submit" name="decision" value="edit">Create with my edits</button>
+        <button type="submit" name="decision" value="reject">Reject → use chosen category</button>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+{% else %}
+<div class="panel flag">
+  <h2>Manual categorization</h2>
+  <p class="muted">The AI couldn't produce a proposal for this submission (see <span class="mono">pipeline.error</span> in the decision log). Choose a category to save it as a new feature.</p>
+  <div class="box"><strong>{{ submission.title }}</strong><p>{{ submission.description }}</p></div>
+  {% if categories %}
+  <form method="post" action="/submissions/{{ submission.id }}/manual-category">
+    <label for="category_id">Category</label>
+    <select id="category_id" name="category_id" required>
+      <option value="">Choose…</option>
+      {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+    <label for="summary">Feature summary (optional; defaults to the description)</label>
+    <textarea id="summary" name="summary"></textarea>
+    <div class="actions"><button class="primary" type="submit">Save as new feature</button></div>
+  </form>
+  {% else %}
+  <p>No categories exist yet. Create them on the <a href="/categories">Categories</a> page first.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

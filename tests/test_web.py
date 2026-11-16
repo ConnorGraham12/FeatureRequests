@@ -197,9 +197,62 @@ def test_support_button_on_the_feature_page_counts_supporters(client, session, f
     assert ">Support<" in page.text
     assert "<strong>0</strong> supporters" in page.text
 
-    client.post(f"/features/{feature.id}/support")
     supported = client.post(f"/features/{feature.id}/support")
     assert "Support added." in supported.text
-    assert "<strong>2</strong> supporters" in supported.text
+    assert "<strong>1</strong> supporter" in supported.text
+    assert "Supported ✓" in supported.text
+    assert ">Support<" not in supported.text
 
     assert client.post("/features/9999/support").status_code == 404
+
+
+def test_a_browser_session_can_support_each_feature_only_once(client, session, fake_model, categories):
+    first = create_feature_through_forms(client, session, fake_model, categories["UI/UX & Accessibility"])
+    fake_model.queue_answers(
+        DuplicateJudgment(duplicate_of_feature_id=None, confidence=0.9, reasoning=".", rejected_candidates=[])
+    )
+    second = create_feature_through_forms(client, session, fake_model, categories["UI/UX & Accessibility"], "Offline mode")
+
+    client.post(f"/features/{first.id}/support")
+    again = client.post(f"/features/{first.id}/support")
+    assert "You&#39;ve already supported this feature." in again.text
+    assert "<strong>1</strong> supporter" in again.text
+
+    # Supporting a different feature in the same session still works.
+    other = client.post(f"/features/{second.id}/support")
+    assert "Support added." in other.text
+
+    # A new browser session (no cookie) can support again.
+    client.cookies.clear()
+    new_session = client.post(f"/features/{first.id}/support")
+    assert "Support added." in new_session.text
+    assert "<strong>2</strong> supporters" in new_session.text
+
+
+def test_submit_page_has_the_debug_log_toggle(client):
+    page = client.get("/")
+    assert 'id="debug-toggle"' in page.text
+    assert 'id="debug-log" hidden' in page.text
+
+
+def test_debug_log_feed_returns_readable_lines_and_only_new_ones_after_a_position(
+    client, session, fake_model, categories
+):
+    first_page = client.get("/debug/log").json()
+    assert first_page == {"lines": [], "next_position": 0}
+
+    feature = create_feature_through_forms(client, session, fake_model, categories["UI/UX & Accessibility"])
+    after_submit = client.get("/debug/log?after=0").json()
+    texts = [line["text"] for line in after_submit["lines"]]
+    assert 'New submission S-001 received: "Dark mode".' in texts
+    assert after_submit["next_position"] == len(texts)
+    assert "payload" not in after_submit["lines"][0]  # raw payloads are not sent
+
+    client.post(f"/features/{feature.id}/support")
+    only_new = client.get(f"/debug/log?after={after_submit['next_position']}").json()
+    assert [line["text"] for line in only_new["lines"]] == ["F-001 supported (now 1 supporter)."]
+    assert only_new["lines"][0]["actor"].startswith("Reviewer")
+
+    # A position past the end (the log was cleared) starts over from recent events.
+    restarted = client.get("/debug/log?after=9999").json()
+    assert len(restarted["lines"]) == restarted["next_position"]

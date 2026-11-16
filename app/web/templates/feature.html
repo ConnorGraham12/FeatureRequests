@@ -17,9 +17,13 @@
     <span class="mono muted">FEATURE {{ feature.id|fid }}</span>
     {% if not feature.is_archived %}
     <div class="toolbar" role="toolbar" aria-label="Feature actions">
+      {% if already_supported %}
+      <button type="button" disabled title="You've supported this feature">Supported ✓</button>
+      {% else %}
       <form method="post" action="/features/{{ feature.id }}/support">
         <button class="primary" type="submit">Support</button>
       </form>
+      {% endif %}
       <button type="button" data-panel="edit-panel" aria-expanded="false" aria-controls="edit-panel">Edit</button>
       <button type="button" data-panel="category-panel" aria-expanded="false" aria-controls="category-panel">Change category</button>
       <form method="post" action="/features/{{ feature.id }}/archive"

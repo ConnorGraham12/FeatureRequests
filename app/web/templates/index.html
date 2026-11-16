@@ -10,4 +10,130 @@
   <textarea id="description" name="description" rows="6" required></textarea>
   <div class="actions"><button class="primary" type="submit">Submit</button></div>
 </form>
+
+<button type="button" class="debug-toggle" id="debug-toggle"
+        aria-expanded="false" aria-controls="debug-log">Debug log</button>
+
+<section class="debug-log" id="debug-log" hidden aria-label="Debug log">
+  <div class="debug-log-header">
+    <strong>Debug log</strong>
+    <span class="small muted" id="debug-log-status">Live</span>
+  </div>
+  <ol class="debug-log-lines" id="debug-log-lines" aria-live="polite"></ol>
+</section>
+
+<style>
+  .debug-toggle { position: fixed; left: 16px; bottom: 16px; z-index: 20; }
+  .debug-log {
+    position: fixed; left: 16px; bottom: 60px; z-index: 20;
+    width: min(560px, calc(100vw - 32px)); height: min(360px, 50vh);
+    display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  }
+  .debug-log[hidden] { display: none; }
+  .debug-log-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+  }
+  .debug-log-lines {
+    list-style: none; margin: 0; padding: 6px 12px; overflow-y: auto; flex: 1;
+    font: 12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  .debug-log-lines li { padding: 3px 0; border-bottom: 1px dashed var(--border); }
+  .debug-log-lines li:last-child { border-bottom: 0; }
+  .debug-log-lines .when, .debug-log-lines .who { color: var(--muted); }
+  .debug-log-lines .error-line { color: var(--danger); }
+</style>
+
+<script>
+  // Debug log box: while it is open, ask the server for new log events every
+  // two seconds and append them. Text is inserted with textContent, so
+  // nothing from the log is ever treated as HTML.
+  (function () {
+    const toggle = document.getElementById("debug-toggle");
+    const box = document.getElementById("debug-log");
+    const list = document.getElementById("debug-log-lines");
+    const status = document.getElementById("debug-log-status");
+    const POLL_INTERVAL_MS = 2000;
+
+    let nextPosition = null;
+    let pollTimer = null;
+    let requestInFlight = false;
+
+    function formatTime(isoTime) {
+      return new Date(isoTime).toLocaleTimeString();
+    }
+
+    function addLine(line) {
+      const item = document.createElement("li");
+      if (line.is_error) item.className = "error-line";
+
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = formatTime(line.time) + " ";
+
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = "[" + line.actor + "] ";
+
+      const what = document.createElement("span");
+      what.textContent = line.text;
+
+      item.title = line.event_type;
+      item.append(when, who, what);
+      list.appendChild(item);
+    }
+
+    function isScrolledToBottom() {
+      return list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+    }
+
+    async function fetchNewLines() {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
+        let url = "/debug/log";
+        if (nextPosition !== null) url += "?after=" + nextPosition;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const page = await response.json();
+
+        // The log was cleared or replaced: start the list over.
+        if (nextPosition !== null && page.next_position < nextPosition) list.replaceChildren();
+        if (page.lines.length > 0 && page.lines[0].position < (nextPosition || 0)) list.replaceChildren();
+
+        const stickToBottom = isScrolledToBottom();
+        page.lines.forEach(addLine);
+        nextPosition = page.next_position;
+        if (stickToBottom) list.scrollTop = list.scrollHeight;
+        if (list.children.length === 0) status.textContent = "Live · no events yet";
+        else status.textContent = "Live";
+      } catch (error) {
+        status.textContent = "Can't reach the server, retrying…";
+      } finally {
+        requestInFlight = false;
+      }
+    }
+
+    function openBox() {
+      box.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+      fetchNewLines();
+      pollTimer = setInterval(fetchNewLines, POLL_INTERVAL_MS);
+    }
+
+    function closeBox() {
+      box.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+    toggle.addEventListener("click", function () {
+      if (box.hidden) openBox();
+      else closeBox();
+    });
+  })();
+</script>
 {% endblock %}

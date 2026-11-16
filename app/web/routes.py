@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from app.db.session import get_request_db_session
 from app.domain.enums import CategoryStatus, ProposalStatus, ProposalType, SubmissionStatus
 from app.domain.proposals import InvalidDecisionError, ProposalAlreadyDecidedError
 from app.observability.decision_log import EventType
+from app.observability.log_feed import read_feed_after
 from app.pipeline.stages import list_active_categories
 from app.services import feature_management, review, taxonomy, triage
 from app.services.context import TriageContext
@@ -86,11 +87,55 @@ def parse_optional_int(form_value: str | None) -> int | None:
     return None
 
 
+# --- One support per browser session ---------------------------------------------------
+#
+# The app has no user accounts, so "one support per person" is approximated as
+# one support per browser session: a cookie lists the IDs of the features this
+# browser has supported. It has no expiry date, so the browser drops it when it
+# is closed. Clearing cookies or using another browser allows supporting again.
+
+SUPPORTED_FEATURES_COOKIE = "supported_features"
+
+
+def read_supported_feature_ids(request: Request) -> set[int]:
+    """The features this browser session has already supported."""
+    cookie_value = request.cookies.get(SUPPORTED_FEATURES_COOKIE, "")
+    supported_ids = set()
+    for part in cookie_value.split("-"):
+        if part.isdigit():
+            supported_ids.add(int(part))
+    return supported_ids
+
+
+def remember_supported_feature_ids(response: RedirectResponse, feature_ids: set[int]) -> None:
+    """Store the supported feature IDs in a cookie that lasts until the browser is closed."""
+    cookie_value = "-".join(str(feature_id) for feature_id in sorted(feature_ids))
+    response.set_cookie(SUPPORTED_FEATURES_COOKIE, cookie_value, httponly=True, samesite="lax")
+
+
 def load_proposal_or_404(session: Session, proposal_id: int) -> Proposal:
     proposal = session.get(Proposal, proposal_id)
     if proposal is None or proposal.submission_id is None:
         raise HTTPException(404)
     return proposal
+
+
+# --- Debug log feed -------------------------------------------------------------
+
+
+@router.get("/debug/log")
+def get_debug_log_feed(
+    after: str = "",
+    context: TriageContext = Depends(get_triage_context),
+):
+    """New decision log events as readable lines, for the debug box on the submit page.
+
+    `after` is the next_position from the previous call; leave it out to get
+    the most recent events.
+    """
+    position = parse_optional_int(after)
+    feed_page = read_feed_after(context.decision_log, position)
+    return JSONResponse(feed_page.to_json_dict())
 
 
 # --- Submitting a request -------------------------------------------------------
@@ -365,6 +410,7 @@ def show_feature_detail(
             "categories": other_categories,
             "other_features": list_other_active_features(session, feature),
             "reassignments": category_changes,
+            "already_supported": feature.id in read_supported_feature_ids(request),
             **messages_from_query(request),
         },
     )
@@ -426,10 +472,15 @@ def handle_feature_restore(
 @router.post("/features/{feature_id}/support")
 def handle_feature_support(
     feature_id: int,
+    request: Request,
     session: Session = Depends(get_request_db_session),
     context: TriageContext = Depends(get_triage_context),
 ):
     feature_page = f"/features/{feature_id}"
+
+    supported_feature_ids = read_supported_feature_ids(request)
+    if feature_id in supported_feature_ids:
+        return redirect_to(feature_page, "You've already supported this feature.")
 
     try:
         feature_management.add_support_to_feature(session, context, feature_id)
@@ -437,7 +488,11 @@ def handle_feature_support(
         raise HTTPException(404)
     except DECISION_ERRORS as error:
         return redirect_to(feature_page, str(error))
-    return redirect_to(feature_page, notice="Support added.")
+
+    response = redirect_to(feature_page, notice="Support added.")
+    supported_feature_ids.add(feature_id)
+    remember_supported_feature_ids(response, supported_feature_ids)
+    return response
 
 
 @router.post("/features/{feature_id}/category")

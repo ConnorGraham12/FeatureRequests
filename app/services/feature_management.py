@@ -3,6 +3,7 @@
     Feature toolbar:
         edit_feature_details                change the title and summary
         archive_feature / restore_feature   "Delete" hides the feature; it can be restored
+        add_support_to_feature              count one more user supporting the feature
         move_feature_to_existing_category   fix a wrong category
         move_feature_to_new_category        ...or create the right one
 
@@ -21,6 +22,7 @@ unmerged, moved or deleted. Delete the whole feature instead.
 
 from datetime import UTC, datetime
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.db.models import Category, Feature, Submission
@@ -136,6 +138,35 @@ def restore_feature(session: Session, context: TriageContext, feature_id: int) -
         feature.archived_at = None
         write_human_event(context, EventType.FEATURE_RESTORED, feature_id=feature.id)
         session.commit()
+        return feature
+
+
+# --- Feature toolbar: support ---------------------------------------------------------
+
+
+def add_support_to_feature(session: Session, context: TriageContext, feature_id: int) -> Feature:
+    """Add one to the feature's support count.
+
+    The count is increased in the database itself (support_count + 1) rather
+    than read, changed and written back, so two people supporting at the same
+    moment are both counted.
+    """
+    feature = load_active_feature(session, feature_id)
+    with bind_correlation_id(get_original_correlation_id(feature)):
+        increase_support_count = (
+            update(Feature)
+            .where(Feature.id == feature.id)
+            .values(support_count=Feature.support_count + 1)
+        )
+        session.execute(increase_support_count)
+        session.commit()
+        session.refresh(feature)
+        write_human_event(
+            context,
+            EventType.FEATURE_SUPPORTED,
+            feature_id=feature.id,
+            payload={"support_count": feature.support_count},
+        )
         return feature
 
 

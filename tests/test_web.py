@@ -188,3 +188,18 @@ def test_merged_submission_toolbar_unmerge(client, session, fake_model, categori
     assert "is now its own feature" in response.text
     assert ">Unmerge<" not in response.text  # one submission left, so no submission actions
     assert "The only submission in this feature" in response.text
+
+
+def test_support_button_on_the_feature_page_counts_supporters(client, session, fake_model, categories):
+    feature = create_feature_through_forms(client, session, fake_model, categories["UI/UX & Accessibility"])
+
+    page = client.get(f"/features/{feature.id}")
+    assert ">Support<" in page.text
+    assert "<strong>0</strong> supporters" in page.text
+
+    client.post(f"/features/{feature.id}/support")
+    supported = client.post(f"/features/{feature.id}/support")
+    assert "Support added." in supported.text
+    assert "<strong>2</strong> supporters" in supported.text
+
+    assert client.post("/features/9999/support").status_code == 404

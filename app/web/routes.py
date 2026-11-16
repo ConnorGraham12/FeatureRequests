@@ -423,6 +423,23 @@ def handle_feature_restore(
     return redirect_to(feature_page, notice="Feature restored.")
 
 
+@router.post("/features/{feature_id}/support")
+def handle_feature_support(
+    feature_id: int,
+    session: Session = Depends(get_request_db_session),
+    context: TriageContext = Depends(get_triage_context),
+):
+    feature_page = f"/features/{feature_id}"
+
+    try:
+        feature_management.add_support_to_feature(session, context, feature_id)
+    except review.NotFoundError:
+        raise HTTPException(404)
+    except DECISION_ERRORS as error:
+        return redirect_to(feature_page, str(error))
+    return redirect_to(feature_page, notice="Support added.")
+
+
 @router.post("/features/{feature_id}/category")
 def handle_feature_category_change(
     feature_id: int,

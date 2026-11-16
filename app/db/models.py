@@ -70,6 +70,9 @@ class Feature(Base):
     # Set when a reviewer deletes the feature. Archived features are hidden but
     # kept, so they can be restored.
     archived_at: Mapped[datetime | None]
+    # How many times users have pressed "Support" on this feature. Used to see
+    # which features are most in demand.
+    support_count: Mapped[int] = mapped_column(default=0, server_default="0")
 
     category: Mapped[Category | None] = relationship(back_populates="features")
     # Every submission ever attached, including archived ones.

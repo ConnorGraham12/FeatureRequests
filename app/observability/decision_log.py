@@ -33,6 +33,7 @@ class EventType(StrEnum):
     FEATURE_EDITED = "feature.edited"
     FEATURE_ARCHIVED = "feature.archived"
     FEATURE_RESTORED = "feature.restored"
+    FEATURE_SUPPORTED = "feature.supported"
     SUBMISSION_UNMERGED = "submission.unmerged"
     SUBMISSION_MOVED = "submission.moved"
     SUBMISSION_ARCHIVED = "submission.archived"

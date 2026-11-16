@@ -53,6 +53,7 @@ def create_tables(engine: Engine) -> None:
 COLUMNS_ADDED_LATER = [
     ("features", "archived_at", "DATETIME"),
     ("submissions", "archived_at", "DATETIME"),
+    ("features", "support_count", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

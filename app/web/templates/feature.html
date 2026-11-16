@@ -17,6 +17,9 @@
     <span class="mono muted">FEATURE {{ feature.id|fid }}</span>
     {% if not feature.is_archived %}
     <div class="toolbar" role="toolbar" aria-label="Feature actions">
+      <form method="post" action="/features/{{ feature.id }}/support">
+        <button class="primary" type="submit">Support</button>
+      </form>
       <button type="button" data-panel="edit-panel" aria-expanded="false" aria-controls="edit-panel">Edit</button>
       <button type="button" data-panel="category-panel" aria-expanded="false" aria-controls="category-panel">Change category</button>
       <form method="post" action="/features/{{ feature.id }}/archive"
@@ -33,6 +36,7 @@
   <p>{{ feature.summary }}</p>
   <p class="small muted">
     {{ active_subs|length }} submission{{ '' if active_subs|length == 1 else 's' }}
+    · <strong>{{ feature.support_count }}</strong> supporter{{ '' if feature.support_count == 1 else 's' }}
     {% if active_subs %} · First seen {{ active_subs[0].created_at.strftime("%Y-%m-%d") }} · Last seen {{ active_subs[-1].created_at.strftime("%Y-%m-%d") }}{% endif %}
   </p>
   {% for change in reassignments %}

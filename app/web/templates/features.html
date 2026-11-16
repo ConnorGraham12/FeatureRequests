@@ -19,7 +19,7 @@
 <div class="panel">
   {% if rows %}
   <table>
-    <thead><tr><th>ID</th><th>Feature</th><th>Category</th><th>Requests</th></tr></thead>
+    <thead><tr><th>ID</th><th>Feature</th><th>Category</th><th>Requests</th><th>Supporters</th></tr></thead>
     <tbody>
     {% for feature, submission_count in rows %}
       <tr>
@@ -27,6 +27,7 @@
         <td><a href="/features/{{ feature.id }}">{{ feature.title }}</a></td>
         <td>{{ feature.category.name if feature.category else "—" }}</td>
         <td>{{ submission_count }}</td>
+        <td>{{ feature.support_count }}</td>
       </tr>
     {% endfor %}
     </tbody>

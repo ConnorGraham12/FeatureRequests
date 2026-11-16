@@ -102,6 +102,33 @@ def test_edit_with_no_changes_or_blank_title_is_refused(session, context, fake_m
         feature_management.edit_feature_details(session, context, feature.id, "  ", "x")
 
 
+# --- Support ------------------------------------------------------------------------
+
+
+def test_support_adds_one_to_the_count_each_time_and_is_logged(session, context, fake_model, ui_category):
+    feature, original = create_feature(session, context, fake_model, DARK_MODE, ui_category)
+    assert feature.support_count == 0
+
+    feature_management.add_support_to_feature(session, context, feature.id)
+    feature_management.add_support_to_feature(session, context, feature.id)
+
+    session.refresh(feature)
+    assert feature.support_count == 2
+    event = last_event(context, original.correlation_id)
+    assert event.event_type is EventType.FEATURE_SUPPORTED
+    assert event.payload == {"support_count": 2}
+
+
+def test_deleted_feature_cannot_be_supported(session, context, fake_model, ui_category):
+    feature, _ = create_feature(session, context, fake_model, DARK_MODE, ui_category)
+    feature_management.archive_feature(session, context, feature.id)
+
+    with pytest.raises(InvalidDecisionError, match="deleted"):
+        feature_management.add_support_to_feature(session, context, feature.id)
+    session.refresh(feature)
+    assert feature.support_count == 0
+
+
 # --- Delete (archive) and restore ------------------------------------------------------
 
 
